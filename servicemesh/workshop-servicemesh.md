@@ -1,13 +1,33 @@
 # SockShopへのService Meshの導入
 
-## 事前準備（管理者向け）
+## 事前準備
 Service Meshのコントロールプレーンをインストールするには、いくつかのOperatorの事前のインストールが必要です。
+
 下記のOperatorのインストールを済ませておきましょう。
 
 - Jaeger operator
 - ElasticSearch operator
 - ServiceMesh operator
 - Kiali operator
+
+## サンプルアプリケーションのインストール
+sockshopというサンプルのアプリケーションをインストールします。
+```
+$ oc new-project sock-shop
+$ oc apply -f complete-demo.yaml
+deployment.extensions/carts-db created
+service/carts-db created
+deployment.extensions/carts created
+service/carts created
+....
+
+$ oc expose service/front-end
+route.route.openshift.io/front-end exposed
+
+$ oc get route
+NAME        HOST/PORT                                       PATH        SERVICES    PORT      TERMINATION   WILDCARD
+front-end   front-end-sockshop.apps-crc.testing             front-end   web                                 None
+```
 
 ## Service Meshのインストール
 Service Mesh本体（コントロールプレーン）をインストールします。  
@@ -52,16 +72,16 @@ prometheus-884ff6bf9-5mbh7                2/2     Running   12         5d19h
 インストールしたコントロールプレーンが対象とする範囲を決めます。
 `ServiceMeshMemberRoll`と呼ばれるカスタムリソースで設定できます。
 今回はひとつのsockshopアプリケーションのProjectのみとなります。  
-`configureMembers`に`userX-sockshop`が含まれていればメンバー追加ができています。
+`configureMembers`に`developer-sockshop`が含まれていればメンバー追加ができています。
 
 ```
-// userX を修正の上、マニフェストapplyする
+// developer を修正の上、マニフェストapplyする
 $ oc apply -f member-roll.yaml -n $OCP_USER-istio-system
 servicemeshmemberroll.maistra.io/default created
 
 $ oc get ServiceMeshMemberRoll default -o yaml | grep -A 1 configuredMembers
   configuredMembers:
-  - userX-sockshop
+  - developer-sockshop
 ```
 
 この時点で、今まで通りRoute経由でSockShopへはアクセスできなくなります（確認してみましょう）。  
@@ -156,7 +176,7 @@ Service Meshのハンズオン以前では、Routeが直接にfront-endサービ
 // spec.hosts と spec.http.route.destination.host 内の値を適切なもの変更
 $ vim front-end-virtualservice.yaml
   hosts:
-    - front-end-user1-sockshop.apps.cluster-6a92.6a92.sandbox595.opentlc.com
+    - front-end-user1-sockshop.apps-crc.testing
   ...
     - destination:
         port:
@@ -167,9 +187,8 @@ $ oc apply -f front-end-virtualservice.yaml -n $OCP_USER-sockshop
 virtualservice.networking.istio.io/front-end-virtualservice created
 
 $ oc get virtualservice -n $OCP_USER-sockshop
-oc get virtualservice
-NAME                       GATEWAYS                      HOSTS                                       AGE
-front-end-virtualservice   [sockshop-wildcard-gateway]   [front-end-user1-sockshop.apps.xxxxx.com]   28s
+NAME                       GATEWAYS                        HOSTS                                               AGE
+front-end-virtualservice   ["sockshop-wildcard-gateway"]   ["front-end-developer-sockshop.apps-crc.testing"]   37m
 ```
 
 続いてGatewayを作成。
@@ -179,7 +198,7 @@ front-end-virtualservice   [sockshop-wildcard-gateway]   [front-end-user1-socksh
 $ vim gateway.yaml
 ...
     hosts:
-    - "*.apps.cluster-6a92.6a92.sandbox595.opentlc.com"
+    - "*.apps-crc.testing"
 
 $ oc apply -f gateway.yaml -n $OCP_USER-sockshop
 gateway.networking.istio.io/sockshop-wildcard-gateway created
@@ -195,18 +214,18 @@ sockshop-wildcard-gateway   40s
 //既存のRoute削除
 $ oc delete route front-end -n $OCP_USER-sockshop
 
-// userX を適切なものに変更する
+// developer を適切なものに変更する
 $ vim front-end-route.yaml
 spec:
-  host: front-end-user1-sockshop.apps.cluster-6a92.6a92.sandbox595.opentlc.com
+  host: front-end-user1-sockshop.apps-crc.testing
 
 // Routeの作成(istioコントロールプレーン側に作成)
 $ oc apply -f front-end-route.yaml -n $OCP_USER-istio-system
 route.route.openshift.io/front-end-service-gateway created
 
 $ oc get route front-end-service-gateway -n $OCP_USER-istio-system
-NAME                        HOST/PORT                                                                PATH   SERVICES               PORT   TERMINATION   WILDCARD
-front-end-service-gateway   front-end-user1-sockshop.apps.cluster-6a92.6a92.sandbox595.opentlc.com          istio-ingressgateway   8080                 None
+NAME                        HOST/PORT                                       PATH   SERVICES               PORT   TERMINATION   WILDCARD
+front-end-service-gateway   front-end-developer-sockshop.apps-crc.testing          istio-ingressgateway   8080                 None
 ```
 
 新しく作成した`front-end-service-gateway`のRouteのホストに対してアクセスし無事にSockShopアプリケーションの画面が出てくれば設定は成功です。  
@@ -258,10 +277,10 @@ front-end-v2-647dbd4ccc-dp778        2/2     Running   0          97m
 まずはfront-endの行き先の設定(`DestinationRule`)をします。
 
 ```
-// userXを変更。
+// developerを変更。
 $ vim front-end-destinationrule.yaml
 spec:
-  host: front-end.userX-sockshop.svc.cluster.local
+  host: front-end.developer-sockshop.svc.cluster.local
 
 $ oc apply -f front-end-destinationrule.yaml -n $OCP_USER-sockshop 
 ```
@@ -269,7 +288,7 @@ $ oc apply -f front-end-destinationrule.yaml -n $OCP_USER-sockshop
 続いて、実際のトラフィックの分散ルールを更新します。
 
 ```
-// userXを変更(3箇所あります)
+// developerを変更(3箇所あります)
 $ vim front-end-virtualservice-v2.yaml
 
 $ oc apply -f front-end-virtualservice-v2.yaml -n $OCP_USER-sockshop

@@ -25,7 +25,7 @@ kind: DestinationRule
 metadata:
   name: "catalogue-mtls"
 spec:
-  host: "catalogue.user10-sockshop.svc.cluster.local"
+  host: "catalogue.developer-sockshop.svc.cluster.local"
   trafficPolicy:
     tls:
       mode: ISTIO_MUTUAL
