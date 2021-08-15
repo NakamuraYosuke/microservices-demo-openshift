@@ -13,7 +13,7 @@ Service Meshのコントロールプレーンをインストールするには�
 ## サンプルアプリケーションのインストール
 sockshopというサンプルのアプリケーションをインストールします。
 ```
-$ oc new-project sock-shop
+$ oc new-project $RHT_OCP4_DEV_USER-sockshop
 $ oc apply -f complete-demo.yaml
 deployment.extensions/carts-db created
 service/carts-db created
@@ -35,8 +35,8 @@ Service Meshのコントロールプレーン自体もOperatorを使ってイン
 kialiのPodまで立ち上がっていれば、インストールは成功です。
 
 ```
-$ oc new-project $OCP_USER-istio-system
-$ cd service-mesh
+$ oc new-project $RHT_OCP4_DEV_USER-istio-system
+$ cd servicemesh
 $ cat istio-control-plane.yaml
 apiVersion: maistra.io/v1
 kind: ServiceMeshControlPlane
@@ -50,8 +50,8 @@ spec:
         enabled: false
 ...
 
-$ oc apply -f istio-control-plane.yaml -n $OCP_USER-istio-system
-$ oc get pod -n $OCP_USER-istio-system
+$ oc apply -f istio-control-plane.yaml -n $RHT_OCP4_DEV_USER-istio-system
+$ oc get pod -n $RHT_OCP4_DEV_USER-istio-system
 NAME                                      READY   STATUS    RESTARTS   AGE
 grafana-7df65c57d5-8tzqn                  2/2     Running   12         5d19h
 istio-citadel-54fc4655b4-hb28n            1/1     Running   6          5d19h
@@ -75,8 +75,7 @@ prometheus-884ff6bf9-5mbh7                2/2     Running   12         5d19h
 `configureMembers`に`developer-sockshop`が含まれていればメンバー追加ができています。
 
 ```
-// developer を修正の上、マニフェストapplyする
-$ oc apply -f member-roll.yaml -n $OCP_USER-istio-system
+$ oc apply -f member-roll.yaml -n $RHT_OCP4_DEV_USER-istio-system
 servicemeshmemberroll.maistra.io/default created
 
 $ oc get ServiceMeshMemberRoll default -o yaml | grep -A 1 configuredMembers
@@ -88,12 +87,12 @@ $ oc get ServiceMeshMemberRoll default -o yaml | grep -A 1 configuredMembers
 理由は、NetworkPolicyの設定でRouterから直接の通信は遮断されているからです。IstioのIngress Gatewayを利用してアクセスするように設定変更をする必要があります。
 
 ```
-$ oc get networkpolicy -n $OCP_USER-sockshop
+$ oc get networkpolicy -n $RHT_OCP4_DEV_USER-sockshop
 NAME                 POD-SELECTOR                   AGE
 istio-expose-route   maistra.io/expose-route=true   70s
 istio-mesh           <none>                         70s
 
-$ oc get networkpolicy -n $OCP_USER-sockshop istio-mesh -o yaml
+$ oc get networkpolicy -n $RHT_OCP4_DEV_USER-sockshop istio-mesh -o yaml
 ...
 spec:
   ingress:
@@ -107,7 +106,7 @@ spec:
 この時点でアクセスしたい場合は、ポートフォワードを活用すると良いです。
 
 ```
-$ oc port-forward service/front-end 8080:80 -n $OCP_USER-sockshop
+$ oc port-forward service/front-end 8080:80 -n $RHT_OCP4_DEV_USER-sockshop
 Forwarding from 127.0.0.1:8080 -> 8079
 Forwarding from [::1]:8080 -> 8079
 ```
@@ -119,9 +118,9 @@ deploymentのannotationsに `"sidecar.istio.io/inject": "true"` を入れるこ�
 ※本環境では、永続ボリュームを利用していないため、Podが再デプロイされたタイミングで以前に保存したデータが削除される点ご注意ください。
 
 ```
-$ for deployment_name in $(oc get deploy -n $OCP_USER-sockshop | sed '1d' | awk '{print $1}')
+$ for deployment_name in $(oc get deploy -n $RHT_OCP4_DEV_USER-sockshop | sed '1d' | awk '{print $1}')
 do
-    oc patch deploy $deployment_name --type='json' -p "[{\"op\": \"add\", \"path\": \"/spec/template/metadata\", \"value\": {\"annotations\":{\"sidecar.istio.io/inject\": \"true\"}, \"labels\":{\"name\":\"$deployment_name\",\"version\":\"v1\"}}}]" -n $OCP_USER-sockshop
+    oc patch deploy $deployment_name --type='json' -p "[{\"op\": \"add\", \"path\": \"/spec/template/metadata\", \"value\": {\"annotations\":{\"sidecar.istio.io/inject\": \"true\"}, \"labels\":{\"name\":\"$deployment_name\",\"version\":\"v1\"}}}]" -n $RHT_OCP4_DEV_USER-sockshop
 done
 
 deployment.extensions/carts patched
@@ -143,7 +142,7 @@ deployment.extensions/user-db patched
 Pod内のコンテナ数が`2/2`と変化していることが確認できるはずです。
 
 ```
-$ oc get pod -w -n $OCP_USER-sockshop
+$ oc get pod -w -n $RHT_OCP4_DEV_USER-sockshop
 NAME                            READY   STATUS    RESTARTS   AGE
 carts-775b5b784b-cmfn7          2/2     Running   0          6h3m
 carts-db-7976bd95d4-zshrt       2/2     Running   0          6h3m
@@ -176,17 +175,17 @@ Service Meshのハンズオン以前では、Routeが直接にfront-endサービ
 // spec.hosts と spec.http.route.destination.host 内の値を適切なもの変更
 $ vim front-end-virtualservice.yaml
   hosts:
-    - front-end-user1-sockshop.apps-crc.testing
+    - front-end-developer-sockshop.apps-crc.testing
   ...
     - destination:
         port:
           number: 80
-        host: front-end.user1-sockshop.svc.cluster.local
+        host: front-end.developer-sockshop.svc.cluster.local
 
-$ oc apply -f front-end-virtualservice.yaml -n $OCP_USER-sockshop
+$ oc apply -f front-end-virtualservice.yaml -n $RHT_OCP4_DEV_USER-sockshop
 virtualservice.networking.istio.io/front-end-virtualservice created
 
-$ oc get virtualservice -n $OCP_USER-sockshop
+$ oc get virtualservice -n $RHT_OCP4_DEV_USER-sockshop
 NAME                       GATEWAYS                        HOSTS                                               AGE
 front-end-virtualservice   ["sockshop-wildcard-gateway"]   ["front-end-developer-sockshop.apps-crc.testing"]   37m
 ```
@@ -200,10 +199,10 @@ $ vim gateway.yaml
     hosts:
     - "*.apps-crc.testing"
 
-$ oc apply -f gateway.yaml -n $OCP_USER-sockshop
+$ oc apply -f gateway.yaml -n $RHT_OCP4_DEV_USER-sockshop
 gateway.networking.istio.io/sockshop-wildcard-gateway created
 
-$ oc get gateway -n $OCP_USER-sockshop
+$ oc get gateway -n $RHT_OCP4_DEV_USER-sockshop
 NAME                        AGE
 sockshop-wildcard-gateway   40s
 ```
@@ -212,18 +211,18 @@ sockshop-wildcard-gateway   40s
 
 ```
 //既存のRoute削除
-$ oc delete route front-end -n $OCP_USER-sockshop
+$ oc delete route front-end -n $RHT_OCP4_DEV_USER-sockshop
 
 // developer を適切なものに変更する
 $ vim front-end-route.yaml
 spec:
-  host: front-end-user1-sockshop.apps-crc.testing
+  host: front-end-developer-sockshop.apps-crc.testing
 
 // Routeの作成(istioコントロールプレーン側に作成)
-$ oc apply -f front-end-route.yaml -n $OCP_USER-istio-system
+$ oc apply -f front-end-route.yaml -n $RHT_OCP4_DEV_USER-istio-system
 route.route.openshift.io/front-end-service-gateway created
 
-$ oc get route front-end-service-gateway -n $OCP_USER-istio-system
+$ oc get route front-end-service-gateway -n $RHT_OCP4_DEV_USER-istio-system
 NAME                        HOST/PORT                                       PATH   SERVICES               PORT   TERMINATION   WILDCARD
 front-end-service-gateway   front-end-developer-sockshop.apps-crc.testing          istio-ingressgateway   8080                 None
 ```
@@ -263,8 +262,8 @@ $ cat front-end-v2.yaml | grep image
         image: mosuke5/front-end:master-49c0d1f
 
 // v2のリリース(v1と共存)
-$ oc apply -f front-end-v2.yaml -n $OCP_USER-sockshop
-$ oc get pod -n $OCP_USER-sockshop | grep front-end
+$ oc apply -f front-end-v2.yaml -n $RHT_OCP4_DEV_USER-sockshop
+$ oc get pod -n $RHT_OCP4_DEV_USER-sockshop | grep front-end
 front-end-55cdb5dd8d-j7pg8           2/2     Running   0          100m
 front-end-v2-647dbd4ccc-dp778        2/2     Running   0          97m
 ```
@@ -282,7 +281,7 @@ $ vim front-end-destinationrule.yaml
 spec:
   host: front-end.developer-sockshop.svc.cluster.local
 
-$ oc apply -f front-end-destinationrule.yaml -n $OCP_USER-sockshop 
+$ oc apply -f front-end-destinationrule.yaml -n $RHT_OCP4_DEV_USER-sockshop 
 ```
 
 続いて、実際のトラフィックの分散ルールを更新します。
@@ -291,7 +290,7 @@ $ oc apply -f front-end-destinationrule.yaml -n $OCP_USER-sockshop
 // developerを変更(3箇所あります)
 $ vim front-end-virtualservice-v2.yaml
 
-$ oc apply -f front-end-virtualservice-v2.yaml -n $OCP_USER-sockshop
+$ oc apply -f front-end-virtualservice-v2.yaml -n $RHT_OCP4_DEV_USER-sockshop
 
 // 自動で定期的にアプリケーションにアクセスするようにする
 $ watch curl xxxxxxxxx.com
